@@ -1,0 +1,226 @@
+
+kind: Namespace
+apiVersion: v1
+metadata:
+  name: prod
+—
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: worker
+  namespace: prod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: worker
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: worker
+    spec:
+      containers:
+        - name: worker
+          image: 'apinizercloud/worker:2021.05.1'
+          ports:
+            - containerPort: 8091
+              protocol: TCP
+          env:
+            - name: JAVA_OPTS
+              value: '-server -XX:MaxRAMPercentage=90'
+            - name: tuneWorkerThreads
+              value: '1024'
+            - name: tuneWorkerMaxThreads
+              value: '1024'
+            - name: tuneBufferSize
+              value: '16384'
+            - name: tuneIoThreads
+              value: '1'
+            - name: tuneBacklog
+              value: '4096'
+            - name: tuneRoutingConnectionPoolMaxConnectionPerHost
+              value: '512'
+            - name: tuneRoutingConnectionPoolMaxConnectionTotal
+              value: '1024'
+            - name: mongodbUri
+              value: -
+                mongodb://YOUR-MONGO-ADDRESS
+            - name: mongodbDatabase
+              value: apinizerdb
+            - name: apinizerProfile
+              value: prod
+            - name: cacheServiceUri
+              value: 'http://cache-http-service:8090/api/'
+          resources:
+            limits:
+              cpu: '1'
+              memory: 1Gi
+          livenessProbe:
+            httpGet:
+              path: /apinizer/management/health
+              port: 8091
+              scheme: HTTP
+            initialDelaySeconds: 120
+            timeoutSeconds: 30
+            periodSeconds: 30
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /apinizer/management/health
+              port: 8091
+              scheme: HTTP
+            initialDelaySeconds: 120
+            timeoutSeconds: 30
+            periodSeconds: 30
+            successThreshold: 1
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /apinizer/management/health
+              port: 8091
+              scheme: HTTP
+            initialDelaySeconds: 90
+            timeoutSeconds: 30
+            periodSeconds: 30
+            successThreshold: 1
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - '-c'
+                  - sleep 10
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          imagePullPolicy: IfNotPresent
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 75%
+      maxSurge: 1
+
+—
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: cache
+  namespace: prod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cache
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: cache
+    spec:
+      containers:
+        - name: cache
+          image: 'apinizercloud/cache:2021.05.1'
+          ports:
+            - containerPort: 8090
+              protocol: TCP
+          env:
+            - name: JAVA_OPTS
+              value: '-server -XX:MaxRAMPercentage=75'
+            - name: SPRING_PROFILES_ACTIVE
+              value: prod
+            - name: SPRING_DATA_MONGODB_URI
+              value: >-
+                mongodb://apinizer:Apinizer.1@173.249.54.199:25080/?authSource=admin&replicaSet=apinizer-replicaset
+            - name: SPRING_DATA_MONGODB_DATABASE
+              value: apinizerdb
+          resources:
+            limits:
+              cpu: '1'
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8090
+              scheme: HTTP
+            initialDelaySeconds: 120
+            timeoutSeconds: 30
+            periodSeconds: 30
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8090
+              scheme: HTTP
+            initialDelaySeconds: 120
+            timeoutSeconds: 30
+            periodSeconds: 30
+            successThreshold: 1
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8090
+              scheme: HTTP
+            initialDelaySeconds: 90
+            timeoutSeconds: 30
+            periodSeconds: 30
+            successThreshold: 1
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - '-c'
+                  - sleep 10
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+          imagePullPolicy: IfNotPresent
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 75%
+
+—
+kind: Service
+apiVersion: v1
+metadata:
+  name: worker-http-service
+  namespace: prod
+   labels:
+    name: worker-http-service
+spec:
+  ports:
+    - protocol: TCP
+      port: 8091
+      targetPort: 8091
+      nodePort: 30080
+  selector:
+    app: worker
+  clusterIP: 10.109.15.193
+  type: NodePort
+
+—
+kind: Service
+apiVersion: v1
+metadata:
+  name: cache-http-service
+  namespace: prod
+  labels:
+    name: cache-http-service
+spec:
+  ports:
+    - protocol: TCP
+      port: 8090
+      targetPort: 8090
+  selector:
+    app: cache
+  type: ClusterIP
+
